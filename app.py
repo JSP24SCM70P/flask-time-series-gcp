@@ -45,7 +45,9 @@ def build_actual_response(response):
     response.headers.set("Access-Control-Allow-Methods",
                          "PUT, GET, POST, DELETE, OPTIONS")
     return response
-
+@app.route('/') 
+def home():
+    return render_template('home.html')
 '''
 API route path is  "/api/forecast"
 This API will accept only POST request
