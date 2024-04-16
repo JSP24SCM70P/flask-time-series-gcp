@@ -57,16 +57,59 @@ def github():
     body = request.get_json()
     # Extract the choosen repositories from the request
     repo_name = body['repository']
+    starlist_status = body['starlist_status']
+    forklist_status = body['forklist_status']
     # Add your own GitHub Token to run it local
     token = os.environ.get(
-        'GITHUB_TOKEN', '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')
+        'GITHUB_TOKEN', 'token')
     GITHUB_URL = f"https://api.github.com/"
     headers = {
-        "Authorization": f'token {token}'
+        "Authorization": f'{token}'
     }
     params = {
         "state": "open"
     }
+
+
+    #if block will return the star count of each repo if starlist_status is request body is true
+
+    if(starlist_status):
+        stars_count = []
+        repo_name = repo_name.split()
+        for r in repo_name:
+            repository_url = GITHUB_URL + "repos/" + r
+            # Fetch GitHub data from GitHub API
+            repository = requests.get(repository_url, headers=headers)
+            # Convert the data obtained from GitHub API to JSON format
+            repository = repository.json()
+            stars = repository["stargazers_count"]
+            temp_arr = [r, stars]
+            stars_count.append(temp_arr)
+        json_response = {
+            "starsCount": stars_count
+        }
+        return jsonify(json_response)
+    
+
+    #if block will return the fork count of each repo if forklist_status is request body is true
+
+    if(forklist_status):
+        forks_count = []
+        repo_name = repo_name.split('$')
+        for r in repo_name:
+            repository_url = GITHUB_URL + "repos/" + r
+            # Fetch GitHub data from GitHub API
+            repository = requests.get(repository_url, headers=headers)
+            # Convert the data obtained from GitHub API to JSON format
+            repository = repository.json()
+            forks = repository["forks_count"]
+            temp_arr = [r, forks]
+            forks_count.append(temp_arr)
+        json_response = {
+            "forksCount": forks_count
+        }
+        return jsonify(json_response)
+    
     repository_url = GITHUB_URL + "repos/" + repo_name
     # Fetch GitHub data from GitHub API
     repository = requests.get(repository_url, headers=headers)
@@ -191,7 +234,7 @@ def github():
     }
 
     # Update your Google cloud deployed LSTM app URL (NOTE: DO NOT REMOVE "/")
-    LSTM_API_URL = "http://localhost:8080/" + "api/forecast"
+    LSTM_API_URL = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/forecast"
 
     '''
     Trigger the LSTM microservice to forecasted the created issues
