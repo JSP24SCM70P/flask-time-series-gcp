@@ -24,6 +24,8 @@ from dateutil import *
 from datetime import date
 import pandas as pd
 import requests
+import time
+import re
 
 # Initilize flask app
 app = Flask(__name__)
@@ -45,6 +47,8 @@ def build_actual_response(response):
     response.headers.set("Access-Control-Allow-Methods",
                          "PUT, GET, POST, DELETE, OPTIONS")
     return response
+
+
 @app.route('/') 
 def home():
     return render_template('home.html')
@@ -61,7 +65,7 @@ def github():
     forklist_status = body['forklist_status']
     # Add your own GitHub Token to run it local
     token = os.environ.get(
-        'GITHUB_TOKEN', 'token')
+        'GITHUB_TOKEN', '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')
     GITHUB_URL = f"https://api.github.com/"
     headers = {
         "Authorization": f'{token}'
@@ -117,12 +121,16 @@ def github():
     repository = repository.json()
 
     today = date.today()
-
-    issues_reponse = []
-    # Iterating to get issues for every month for the past 12 months
-    for i in range(12):
+    date_24m_back = today
+    issues_reponse = []   # for type: issues
+    pull_responses = []   # for type:pr
+    # Iterating to get issues for every month for the past 24 months
+    for i in range(24):
+        params = {
+        "state": "open"
+        }
         last_month = today + dateutil.relativedelta.relativedelta(months=-1)
-        types = 'type:issue'
+        #types = 'type:issue'   #commenting because if this is not included, it returns both issues and pulls
         repo = 'repo:' + repo_name
         ranges = 'created:' + str(last_month) + '..' + str(today)
         # By default GitHub API returns only 30 results per page
@@ -130,15 +138,31 @@ def github():
         # For more info, visit https://docs.github.com/en/rest/reference/repos 
         per_page = 'per_page=100'
         # Search query will create a query to fetch data for a given repository in a given time range
-        search_query = types + ' ' + repo + ' ' + ranges
+        search_query = repo + ' ' + ranges
 
         # Append the search query to the GitHub API URL 
         query_url = GITHUB_URL + "search/issues?q=" + search_query + "&" + per_page
         # requsets.get will fetch requested query_url from the GitHub API
         search_issues = requests.get(query_url, headers=headers, params=params)
+        search_issues_headers = search_issues.headers
         # Convert the data obtained from GitHub API to JSON format
         search_issues = search_issues.json()
+        
         issues_items = []
+
+        '''
+        code to handle github API rate limit 
+        '''
+        while(True):
+            if('message' in search_issues):
+                time.sleep(10)
+                search_issues = requests.get(query_url, headers=headers, params=params)
+                # Convert the data obtained from GitHub API to JSON format
+                search_issues = search_issues.json()
+            else:
+                break
+        
+        
         try:
             # Extract "items" from search issues
             issues_items = search_issues.get("items")
@@ -147,6 +171,54 @@ def github():
             resp = Response(json.dumps(error), mimetype='application/json')
             resp.status_code = 500
             return resp
+        
+        total_count = search_issues.get("total_count")
+        if total_count > 0 and len(issues_items) == 0:
+            #time.sleep(10) # just in case if there is a mismatch
+            search_issues = requests.get(query_url, headers=headers, params=params)
+            search_issues = search_issues.json()    
+        
+        '''
+        if block to handle pagination of github api. This will ensure we get all data 
+        '''
+        if 'Link' in search_issues_headers:
+            links = search_issues_headers.get("Link")
+            if 'rel="last"' in links:
+                pattern = r'<([^>]+)>; rel="last"'
+
+                # Extract the URL for the last page
+                last_page_url = re.search(pattern, links).group(1)
+
+                # Parse the URL to get last page number
+                last_page_number = int(last_page_url.split('page=')[-1])
+                
+                # Fetch issues for remaining pages
+                for page_number in range(2, last_page_number + 1):
+                    params["page"] = page_number
+                    inter_result = requests.get(query_url, headers=headers, params=params)
+                    inter_result = inter_result.json()
+                    '''
+                    code to handle github API rate limit 
+                    '''
+                    while(True):
+                        if('message' in inter_result):
+                            time.sleep(10)
+                            inter_result = requests.get(query_url, headers=headers, params=params)
+                            
+                            inter_result= inter_result.json()
+                            #inter_result = inter_result.get("items")
+                        else:
+                            break
+                    #inter_result = inter_result.json()
+                    total_count = inter_result.get("total_count")
+                    inter_result = inter_result.get("items")
+                    
+                    if total_count > 0 and len(issues_items) == 0:
+                        #time.sleep(10)
+                        inter_result = requests.get(query_url, headers=headers, params=params)
+                        inter_result = inter_result.json()
+                    issues_items.extend(inter_result)
+        
         if issues_items is None:
             continue
         for issue in issues_items:
@@ -170,11 +242,16 @@ def github():
             data['State'] = current_issue["state"]
             # Get Author of issue
             data['Author'] = current_issue["user"]["login"]
-            issues_reponse.append(data)
+            if 'pull_request' in current_issue:
+                pull_responses.append(data)                # key name 'pull_request' will be present for pull requests
+            else:
+                issues_reponse.append(data)
 
         today = last_month
+        date_24m_back = last_month
 
     df = pd.DataFrame(issues_reponse)
+    df_pull = pd.DataFrame(pull_responses)   # pull requests dataframe
 
     # Daily Created Issues
     df_created_at = df.groupby(['created_at'], as_index=False).count()
@@ -208,8 +285,13 @@ def github():
         pd.Series(closed_at), format='%Y-%m-%d')
     month_issue_closed.index = month_issue_closed.dt.to_period('m')
     month_issue_closed = month_issue_closed.groupby(level=0).size()
-    month_issue_closed = month_issue_closed.reindex(pd.period_range(
-        month_issue_closed.index.min(), month_issue_closed.index.max(), freq='m'), fill_value=0)
+    date_a = date.today().strftime('%Y-%m-%d')
+    date_b = date_24m_back.strftime('%Y-%m-%d')
+    if all(value is None for value in month_issue_closed):
+        month_issue_closed = pd.Series(0,index=pd.period_range(start=date_b, end=date_a, freq='m'))
+    else:
+        month_issue_closed = month_issue_closed.reindex(pd.period_range(
+            month_issue_closed.index.min(), month_issue_closed.index.max(), freq='m'), fill_value=0)
     month_issue_closed_dict = month_issue_closed.to_dict()
     closed_at_issues = []
     for key in month_issue_closed_dict.keys():
@@ -232,9 +314,16 @@ def github():
         "type": "closed_at",
         "repo": repo_name.split("/")[1]
     }
+    pull_requests_created_body = {
+        "issues": pull_responses,
+        "type": "created_at",
+        "repo": repo_name.split("/")[1],
+        "issue_type": "pull"
+    }
 
     # Update your Google cloud deployed LSTM app URL (NOTE: DO NOT REMOVE "/")
     LSTM_API_URL = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/forecast"
+    #LSTM_API_URL = "http://127.0.0.1:8080/" + "api/forecast"
 
     '''
     Trigger the LSTM microservice to forecasted the created issues
@@ -255,6 +344,16 @@ def github():
                                        headers={'content-type': 'application/json'})
     
     '''
+    Trigger the LSTM microservice to forecasted the pull issues
+    The request body consists of pull issues obtained from GitHub API in JSON format
+    The response body consists of Google cloud storage path of the images generated by LSTM microservice
+    '''
+    pull_created_at_response = requests.post(LSTM_API_URL,
+                                       json=pull_requests_created_body,
+                                       headers={'content-type': 'application/json'})
+    
+    
+    '''
     Create the final response that consists of:
         1. GitHub repository data obtained from GitHub API
         2. Google cloud image urls of created and closed issues obtained from LSTM microservice
@@ -269,6 +368,9 @@ def github():
         },
         "closedAtImageUrls": {
             **closed_at_response.json(),
+        },
+        "pulledAtImageUrls": {
+            **pull_created_at_response.json(),
         },
     }
     # Return the response back to client (React app)
