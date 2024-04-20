@@ -114,7 +114,7 @@ def github():
     forklist_status = body['forklist_status']
     # Add your own GitHub Token to run it local
     token = os.environ.get(
-        'GITHUB_TOKEN','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')
+        'GITHUB_TOKEN')
     GITHUB_URL = f"https://api.github.com/"
     headers = {
         "Authorization": f'token {token}'
