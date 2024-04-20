@@ -48,6 +48,55 @@ def build_actual_response(response):
                          "PUT, GET, POST, DELETE, OPTIONS")
     return response
 
+'''
+function to handle pagination of github api. This will ensure we get all data from linked pages
+'''
+def pagination(search_issues_headers, query_url, token, type):
+    headers = {
+        "Authorization": f'token {token}'
+    }
+    params = {
+        "state": "open"
+    }
+    issues_items = []
+    if 'Link' in search_issues_headers:
+            links = search_issues_headers.get("Link")
+            if 'rel="last"' in links:
+                pattern = r'<([^>]+)>; rel="last"'
+
+                # Extract the URL for the last page
+                last_page_url = re.search(pattern, links).group(1)
+
+                # Parse the URL to get last page number
+                last_page_number = int(last_page_url.split('page=')[-1])
+                
+                # Fetch issues for remaining pages
+                for page_number in range(2, last_page_number + 1):
+                    params["page"] = page_number
+                    inter_result = requests.get(query_url, headers=headers, params=params)
+                    inter_result = inter_result.json()
+                    '''
+                    code to handle github API rate limit 
+                    '''
+                    while(True):
+                        if('message' in inter_result):
+                            time.sleep(10)
+                            inter_result = requests.get(query_url, headers=headers, params=params)
+                            
+                            inter_result= inter_result.json()
+                            #inter_result = inter_result.get("items")
+                        else:
+                            break
+                    #inter_result = inter_result.json()
+                    if type == "issue":
+                        inter_result = inter_result.get("items")
+                        issues_items.extend(inter_result)
+                    elif type == "commit":
+                        issues_items.extend(inter_result)
+                    elif type == "releases":
+                        issues_items.extend(inter_result)
+    return issues_items
+
 
 @app.route('/') 
 def home():
@@ -65,10 +114,10 @@ def github():
     forklist_status = body['forklist_status']
     # Add your own GitHub Token to run it local
     token = os.environ.get(
-        'GITHUB_TOKEN', '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')
+        'GITHUB_TOKEN')
     GITHUB_URL = f"https://api.github.com/"
     headers = {
-        "Authorization": f'{token}'
+        "Authorization": f'token {token}'
     }
     params = {
         "state": "open"
@@ -179,45 +228,10 @@ def github():
             search_issues = search_issues.json()    
         
         '''
-        if block to handle pagination of github api. This will ensure we get all data 
+        fetching remaining issues from linked pages
         '''
-        if 'Link' in search_issues_headers:
-            links = search_issues_headers.get("Link")
-            if 'rel="last"' in links:
-                pattern = r'<([^>]+)>; rel="last"'
-
-                # Extract the URL for the last page
-                last_page_url = re.search(pattern, links).group(1)
-
-                # Parse the URL to get last page number
-                last_page_number = int(last_page_url.split('page=')[-1])
-                
-                # Fetch issues for remaining pages
-                for page_number in range(2, last_page_number + 1):
-                    params["page"] = page_number
-                    inter_result = requests.get(query_url, headers=headers, params=params)
-                    inter_result = inter_result.json()
-                    '''
-                    code to handle github API rate limit 
-                    '''
-                    while(True):
-                        if('message' in inter_result):
-                            time.sleep(10)
-                            inter_result = requests.get(query_url, headers=headers, params=params)
-                            
-                            inter_result= inter_result.json()
-                            #inter_result = inter_result.get("items")
-                        else:
-                            break
-                    #inter_result = inter_result.json()
-                    total_count = inter_result.get("total_count")
-                    inter_result = inter_result.get("items")
-                    
-                    if total_count > 0 and len(issues_items) == 0:
-                        #time.sleep(10)
-                        inter_result = requests.get(query_url, headers=headers, params=params)
-                        inter_result = inter_result.json()
-                    issues_items.extend(inter_result)
+        pagination_response = pagination(search_issues_headers,query_url, token, "issue")
+        issues_items.extend(pagination_response)
         
         if issues_items is None:
             continue
@@ -228,7 +242,11 @@ def github():
             # Get issue number
             data['issue_number'] = current_issue["number"]
             # Get created date of issue
-            data['created_at'] = current_issue["created_at"][0:10]
+            if 'pull_request' in current_issue:
+                data['pull_created_at'] = current_issue["created_at"][0:10]                # key name 'pull_request' will be present for pull requests
+            else:
+                data['created_at'] = current_issue["created_at"][0:10]
+            #data['created_at'] = current_issue["created_at"][0:10]
             if current_issue["closed_at"] == None:
                 data['closed_at'] = current_issue["closed_at"]
             else:
@@ -249,6 +267,67 @@ def github():
 
         today = last_month
         date_24m_back = last_month
+    
+
+    '''
+    fetch commits data from the requested repository
+    '''
+   
+    ranges = 'since=' + str(date_24m_back)
+    per_page = 'per_page=100'
+
+
+    # Append the search query to the GitHub API URL 
+    query_url_commits = repository_url + "/commits?" + ranges + "&" + per_page
+    # requsets.get will fetch requested query_url from the GitHub API
+    commits_response = requests.get(query_url_commits, headers=headers, params=params)
+    commits_response_headers = commits_response.headers
+    # Convert the data obtained from GitHub API to JSON format
+    commits_response = commits_response.json()
+
+    pagination_response_commits = pagination(commits_response_headers,query_url_commits, token, "commit")
+    commits_response.extend(pagination_response_commits)
+
+    commits_list = []
+
+    for commit in commits_response:
+        label_name = []
+        data = {}
+        current_commit = commit
+        if current_commit['commit']['committer'] is not None:
+            data['commit_created_at'] = current_commit['commit']['committer']['date'][0:10]
+            data['issue_number'] = current_commit['sha']
+            commits_list.append(data)
+
+    '''
+    fetch releases data from the requested repository
+    '''
+    
+    #per_page = 'per_page=100'
+    
+    # Append the search query to the GitHub API URL 
+    query_url_releases = repository_url + "/releases?" + per_page
+    # requsets.get will fetch requested query_url from the GitHub API
+    releases_response = requests.get(query_url_releases, headers=headers, params=params)
+    releases_response_headers = releases_response.headers
+    # Convert the data obtained from GitHub API to JSON format
+    releases_response = releases_response.json()
+
+    pagination_response_releases = pagination(releases_response_headers,query_url_releases, token, "releases")
+    releases_response.extend(pagination_response_releases)
+
+    releases_list = []
+
+    for release in releases_response:
+        label_name = []
+        data = {}
+        current_release = release
+        if current_release is not None:
+            data['release_created_at'] = current_release['created_at'][0:10]
+            data['published_at'] = current_release['published_at'][0:10]
+            data['issue_number'] = current_release['id']
+            data['url'] = current_release['url']
+            releases_list.append(data)
 
     df = pd.DataFrame(issues_reponse)
     df_pull = pd.DataFrame(pull_responses)   # pull requests dataframe
@@ -316,9 +395,21 @@ def github():
     }
     pull_requests_created_body = {
         "issues": pull_responses,
-        "type": "created_at",
+        "type": "pull_created_at",
         "repo": repo_name.split("/")[1],
-        "issue_type": "pull"
+        "issue_type": "pulls"
+    }
+    commits_created_body = {
+        "issues": commits_list,
+        "type": "commit_created_at",
+        "repo": repo_name.split("/")[1],
+        "issue_type": "commits"
+    }
+    releases_created_body = {
+        "issues": releases_list,
+        "type": "release_created_at",
+        "repo": repo_name.split("/")[1],
+        "issue_type": "releases"
     }
 
     # Update your Google cloud deployed LSTM app URL (NOTE: DO NOT REMOVE "/")
@@ -352,6 +443,23 @@ def github():
                                        json=pull_requests_created_body,
                                        headers={'content-type': 'application/json'})
     
+    '''
+    Trigger the LSTM microservice to forecasted the commits
+    The request body consists of commits obtained from GitHub API in JSON format
+    The response body consists of Google cloud storage path of the images generated by LSTM microservice
+    '''
+    commits_created_at_response = requests.post(LSTM_API_URL,
+                                       json=commits_created_body,
+                                       headers={'content-type': 'application/json'})
+    
+    '''
+    Trigger the LSTM microservice to forecasted the releases
+    The request body consists of releases obtained from GitHub API in JSON format
+    The response body consists of Google cloud storage path of the images generated by LSTM microservice
+    '''
+    releases_created_at_response = requests.post(LSTM_API_URL,
+                                       json=releases_created_body,
+                                       headers={'content-type': 'application/json'})
     
     '''
     Create the final response that consists of:
@@ -371,6 +479,12 @@ def github():
         },
         "pulledAtImageUrls": {
             **pull_created_at_response.json(),
+        },
+        "commitsAtImageUrls": {
+            **commits_created_at_response.json(),
+        },
+        "releasesAtImageUrls": {
+            **releases_created_at_response.json(),
         },
     }
     # Return the response back to client (React app)
