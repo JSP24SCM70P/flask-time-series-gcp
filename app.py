@@ -509,12 +509,12 @@ def github():
     }
 
     # Update your Google cloud deployed LSTM app URL (NOTE: DO NOT REMOVE "/")
-    #LSTM_API_URL = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/forecast"
-    #LSTM_API_URL_STAT = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/stat"
-    #LSTM_API_URL_FB = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/fbprophet"
-    LSTM_API_URL = "http://127.0.0.1:8080/" + "api/forecast"
+    LSTM_API_URL = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/forecast"
+    LSTM_API_URL_STAT = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/stat"
+    LSTM_API_URL_FB = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/fbprophet"
+    """ LSTM_API_URL = "http://127.0.0.1:8080/" + "api/forecast"
     LSTM_API_URL_STAT = "http://127.0.0.1:8080/" + "api/stat"
-    LSTM_API_URL_FB = "http://127.0.0.1:8080/" + "api/fbprophet"
+    LSTM_API_URL_FB = "http://127.0.0.1:8080/" + "api/fbprophet" """
     '''
     Trigger the LSTM microservice to forecasted the created issues  (stat model)
     The request body consists of created issues obtained from GitHub API in JSON format
