@@ -112,6 +112,8 @@ def github():
     repo_name = body['repository']
     starlist_status = body['starlist_status']
     forklist_status = body['forklist_status']
+    linechart_status = body['linechart_status']
+    stackissues_status = body['stackissues_status']
     # Add your own GitHub Token to run it local
     token = os.environ.get(
         'GITHUB_TOKEN')
@@ -160,6 +162,77 @@ def github():
             forks_count.append(temp_arr)
         json_response = {
             "forksCount": forks_count
+        }
+        return jsonify(json_response)
+    
+    if(linechart_status):
+        issues_count = []
+        today = date.today()
+        last_month = today + dateutil.relativedelta.relativedelta(months=-24)
+        repo_name = repo_name.split('*')
+        for r in repo_name:
+            params = {
+            "state": "open"
+            }
+            repo = 'repo:' + r
+            ranges = 'created:' + str(last_month) + '..' + str(today)
+            types = 'type:issue'
+            per_page = 'per_page=100'
+            
+            search_query = repo + ' ' + ranges + ' ' + types
+
+            # Append the search query to the GitHub API URL 
+            query_url = GITHUB_URL + "search/issues?q=" + search_query + "&" + per_page
+            # Fetch GitHub data from GitHub API
+            repository = requests.get(query_url, headers=headers, params=params)
+            # Convert the data obtained from GitHub API to JSON format
+            repository = repository.json()
+            issues = repository["total_count"]
+            temp_arr = [r, issues]
+            issues_count.append(temp_arr)
+        json_response = {
+            "issuesCount": issues_count
+        }
+        return jsonify(json_response)
+    
+    if(stackissues_status):
+        issues_count = []
+        issues_count_close = []
+        today = date.today()
+        last_month = today + dateutil.relativedelta.relativedelta(months=-24)
+        repo_name = repo_name.split('@')
+        for r in repo_name:
+            params = {
+            "state": "open"
+            }
+            repo = 'repo:' + r
+            ranges = 'created:' + str(last_month) + '..' + str(today)
+            types = 'type:issue'
+            per_page = 'per_page=100'
+            state_open = 'state:open'
+            state_close = 'state:closed'
+            search_query = repo + ' ' + ranges + ' ' + types
+
+            # Append the search query to the GitHub API URL 
+            query_url = GITHUB_URL + "search/issues?q=" + search_query + ' ' + state_open + "&" + per_page
+            query_url_close = GITHUB_URL + "search/issues?q=" + search_query + ' ' + state_close + "&" + per_page
+            # Fetch GitHub data from GitHub API
+            repository = requests.get(query_url, headers=headers, params=params)
+            # Convert the data obtained from GitHub API to JSON format
+            repository = repository.json()
+            issues = repository["total_count"]
+            temp_arr = [r, issues]
+            issues_count.append(temp_arr)
+
+            repository = requests.get(query_url_close, headers=headers, params=params)
+            # Convert the data obtained from GitHub API to JSON format
+            repository = repository.json()
+            issues_close = repository["total_count"]
+            temp_arr = [r, issues_close]
+            issues_count_close.append(temp_arr)
+        json_response = {
+            "issuesCountOpen": issues_count,
+            "issuesCountClosed": issues_count_close
         }
         return jsonify(json_response)
     
@@ -376,6 +449,29 @@ def github():
     for key in month_issue_closed_dict.keys():
         array = [str(key), month_issue_closed_dict[key]]
         closed_at_issues.append(array)
+    
+    '''
+    weekly Closed Issues
+    Format the data by grouping the data by week
+    ''' 
+    
+    closed_at = df['closed_at'].sort_values(ascending=True)
+    week_issue_closed = pd.to_datetime(
+        pd.Series(closed_at), format='%Y-%m-%d')
+    week_issue_closed.index = week_issue_closed.dt.to_period('w')
+    week_issue_closed = week_issue_closed.groupby(level=0).size()
+    date_a = date.today().strftime('%Y-%m-%d')
+    date_b = date_24m_back.strftime('%Y-%m-%d')
+    if all(value is None for value in week_issue_closed):
+        week_issue_closed = pd.Series(0,index=pd.period_range(start=date_b, end=date_a, freq='w'))
+    else:
+        week_issue_closed = week_issue_closed.reindex(pd.period_range(
+            week_issue_closed.index.min(), week_issue_closed.index.max(), freq='w'), fill_value=0)
+    week_issue_closed_dict = week_issue_closed.to_dict()
+    closed_at_issues_week = []
+    for key in week_issue_closed_dict.keys():
+        array = [str(key), week_issue_closed_dict[key]]
+        closed_at_issues_week.append(array)
 
     '''
         1. Hit LSTM Microservice by passing issues_response as body
@@ -413,21 +509,30 @@ def github():
     }
 
     # Update your Google cloud deployed LSTM app URL (NOTE: DO NOT REMOVE "/")
-    LSTM_API_URL = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/forecast"
-    LSTM_API_URL_STAT = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/stat"
-    #LSTM_API_URL = "http://127.0.0.1:8080/" + "api/forecast"
-    #LSTM_API_URL_STAT = "http://127.0.0.1:8080/" + "api/stat"
+    #LSTM_API_URL = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/forecast"
+    #LSTM_API_URL_STAT = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/stat"
+    #LSTM_API_URL_FB = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/fbprophet"
+    LSTM_API_URL = "http://127.0.0.1:8080/" + "api/forecast"
+    LSTM_API_URL_STAT = "http://127.0.0.1:8080/" + "api/stat"
+    LSTM_API_URL_FB = "http://127.0.0.1:8080/" + "api/fbprophet"
     '''
     Trigger the LSTM microservice to forecasted the created issues  (stat model)
     The request body consists of created issues obtained from GitHub API in JSON format
     The response body consists of Google cloud storage path of the images generated by LSTM microservice
     '''
+    closed_at_response_fb = requests.post(LSTM_API_URL_FB,
+                                       json=closed_at_body,
+                                       headers={'content-type': 'application/json'})
     created_at_response = requests.post(LSTM_API_URL,
                                         json=created_at_body,
                                         headers={'content-type': 'application/json'})
     created_at_response_stat = requests.post(LSTM_API_URL_STAT,
                                         json=created_at_body,
                                         headers={'content-type': 'application/json'})
+    created_at_response_fb = requests.post(LSTM_API_URL_FB,
+                                        json=created_at_body,
+                                        headers={'content-type': 'application/json'})
+    
 
     '''
     Trigger the LSTM microservice to forecasted the created issues
@@ -447,6 +552,7 @@ def github():
     closed_at_response_stat = requests.post(LSTM_API_URL_STAT,
                                        json=closed_at_body,
                                        headers={'content-type': 'application/json'})
+    
     
     
     '''
@@ -496,6 +602,7 @@ def github():
     json_response = {
         "created": created_at_issues,
         "closed": closed_at_issues,
+        "week_closed": closed_at_issues_week,
         "starCount": repository["stargazers_count"],
         "forkCount": repository["forks_count"],
         "createdAtImageUrls": {
@@ -527,7 +634,13 @@ def github():
         },
         "releasesAtStatImageUrls": {
             **releases_created_at_response_stat.json(),
-        }
+        },
+        "createdAtFbImageUrls": {
+            **created_at_response_fb.json(),
+        },
+        "closedAtFbImageUrls": {
+            **closed_at_response_fb.json(),
+        },
     }
     # Return the response back to client (React app)
     return jsonify(json_response)
