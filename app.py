@@ -512,9 +512,13 @@ def github():
     LSTM_API_URL = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/forecast"
     LSTM_API_URL_STAT = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/stat"
     LSTM_API_URL_FB = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/fbprophet"
+
+
     """ LSTM_API_URL = "http://127.0.0.1:8080/" + "api/forecast"
     LSTM_API_URL_STAT = "http://127.0.0.1:8080/" + "api/stat"
-    LSTM_API_URL_FB = "http://127.0.0.1:8080/" + "api/fbprophet" """
+    LSTM_API_URL_FB = "http://127.0.0.1:8080/" + "api/fbprophet" """ 
+
+
     '''
     Trigger the LSTM microservice to forecasted the created issues  (stat model)
     The request body consists of created issues obtained from GitHub API in JSON format
@@ -564,6 +568,9 @@ def github():
                                        json=pull_requests_created_body,
                                        headers={'content-type': 'application/json'})
     pull_created_at_response_stat = requests.post(LSTM_API_URL_STAT,
+                                       json=pull_requests_created_body,
+                                       headers={'content-type': 'application/json'})
+    pull_created_at_response_fb = requests.post(LSTM_API_URL_FB,
                                        json=pull_requests_created_body,
                                        headers={'content-type': 'application/json'})
     
@@ -640,6 +647,9 @@ def github():
         },
         "closedAtFbImageUrls": {
             **closed_at_response_fb.json(),
+        },
+        "pulledAtFbImageUrls": {
+            **pull_created_at_response_fb.json(),
         },
     }
     # Return the response back to client (React app)
