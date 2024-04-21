@@ -516,7 +516,7 @@ def github():
 
     """ LSTM_API_URL = "http://127.0.0.1:8080/" + "api/forecast"
     LSTM_API_URL_STAT = "http://127.0.0.1:8080/" + "api/stat"
-    LSTM_API_URL_FB = "http://127.0.0.1:8080/" + "api/fbprophet" """ 
+    LSTM_API_URL_FB = "http://127.0.0.1:8080/" + "api/fbprophet" """
 
 
     '''
@@ -585,6 +585,9 @@ def github():
     commits_created_at_response_stat = requests.post(LSTM_API_URL_STAT,
                                        json=commits_created_body,
                                        headers={'content-type': 'application/json'})
+    commits_created_at_response_fb = requests.post(LSTM_API_URL_FB,
+                                       json=commits_created_body,
+                                       headers={'content-type': 'application/json'})
     
     '''
     Trigger the LSTM microservice to forecasted the releases
@@ -597,8 +600,9 @@ def github():
     releases_created_at_response_stat = requests.post(LSTM_API_URL_STAT,
                                        json=releases_created_body,
                                        headers={'content-type': 'application/json'})
-    
-    
+    releases_created_at_response_fb = requests.post(LSTM_API_URL_FB,
+                                       json=releases_created_body,
+                                       headers={'content-type': 'application/json'})
     
     
     '''
@@ -650,6 +654,12 @@ def github():
         },
         "pulledAtFbImageUrls": {
             **pull_created_at_response_fb.json(),
+        },
+        "commitsAtFbImageUrls": {
+            **commits_created_at_response_fb.json(),
+        },
+        "releasesAtFbImageUrls": {
+            **releases_created_at_response_fb.json(),
         },
     }
     # Return the response back to client (React app)
