@@ -21,7 +21,7 @@ from flask_cors import CORS
 import json
 import dateutil.relativedelta
 from dateutil import *
-from datetime import date
+from datetime import date, datetime
 import pandas as pd
 import requests
 import time
@@ -94,6 +94,8 @@ def pagination(search_issues_headers, query_url, token, type):
                     elif type == "commit":
                         issues_items.extend(inter_result)
                     elif type == "releases":
+                        issues_items.extend(inter_result)
+                    elif type == "branches":
                         issues_items.extend(inter_result)
     return issues_items
 
@@ -372,6 +374,41 @@ def github():
             data['issue_number'] = current_commit['sha']
             commits_list.append(data)
 
+    
+    '''
+    branches
+    '''
+    query_url_branches = repository_url + "/branches?" + per_page
+    # requsets.get will fetch requested query_url from the GitHub API
+    branches_response = requests.get(query_url_branches, headers=headers, params=params)
+    branches_response_headers = branches_response.headers
+    # Convert the data obtained from GitHub API to JSON format
+    branches_response = branches_response.json()
+
+    pagination_response_branches = pagination(branches_response_headers,query_url_branches, token, "branches")
+    branches_response.extend(pagination_response_branches)
+
+    branches_list = []
+
+    for branch in branches_response:
+        label_name = []
+        data = {}
+        current_branch = branch
+        if current_branch['commit']['url'] is not None:
+            commit_url = current_branch['commit']['url']
+            response = requests.get(commit_url, headers=headers, params=params)
+            response = response.json()
+            
+            if response['commit']['committer'] is not None:
+                data['branch_commit_at'] = response['commit']['committer']['date'][0:10]
+                data['issue_number'] = response['sha']
+                date_a = datetime.strptime(data['branch_commit_at'], '%Y-%m-%d')
+                #date_b = date_24m_back.strftime('%Y-%m-%d')
+                date_a = date_a.date()
+                if date_a < date_24m_back:
+                    continue
+                branches_list.append(data)
+
     '''
     fetch releases data from the requested repository
     '''
@@ -507,6 +544,12 @@ def github():
         "repo": repo_name.split("/")[1],
         "issue_type": "releases"
     }
+    branches_created_body = {
+        "issues": branches_list,
+        "type": "branch_commit_at",
+        "repo": repo_name.split("/")[1],
+        "issue_type": "branches"
+    }
 
     # Update your Google cloud deployed LSTM app URL (NOTE: DO NOT REMOVE "/")
     LSTM_API_URL = "https://lstm-forecast-mx3slx5rea-uc.a.run.app/" + "api/forecast"
@@ -516,8 +559,8 @@ def github():
 
     """ LSTM_API_URL = "http://127.0.0.1:8080/" + "api/forecast"
     LSTM_API_URL_STAT = "http://127.0.0.1:8080/" + "api/stat"
-    LSTM_API_URL_FB = "http://127.0.0.1:8080/" + "api/fbprophet" """
-
+    LSTM_API_URL_FB = "http://127.0.0.1:8080/" + "api/fbprophet"
+ """
 
     '''
     Trigger the LSTM microservice to forecasted the created issues  (stat model)
@@ -604,6 +647,16 @@ def github():
                                        json=releases_created_body,
                                        headers={'content-type': 'application/json'})
     
+    branches_created_at_response = requests.post(LSTM_API_URL,
+                                       json=branches_created_body,
+                                       headers={'content-type': 'application/json'})
+    branches_created_at_response_stat = requests.post(LSTM_API_URL_STAT,
+                                       json=branches_created_body,
+                                       headers={'content-type': 'application/json'})
+    branches_created_at_response_fb = requests.post(LSTM_API_URL_FB,
+                                       json=branches_created_body,
+                                       headers={'content-type': 'application/json'})
+    
     
     '''
     Create the final response that consists of:
@@ -628,6 +681,9 @@ def github():
         "commitsAtImageUrls": {
             **commits_created_at_response.json(),
         },
+        "branchesAtImageUrls": {
+            **branches_created_at_response.json(),
+        },
         "releasesAtImageUrls": {
             **releases_created_at_response.json(),
         },
@@ -643,6 +699,9 @@ def github():
         "commitsAtStatImageUrls": {
             **commits_created_at_response_stat.json(),
         },
+        "branchesAtStatImageUrls": {
+            **branches_created_at_response_stat.json(),
+        },
         "releasesAtStatImageUrls": {
             **releases_created_at_response_stat.json(),
         },
@@ -657,6 +716,9 @@ def github():
         },
         "commitsAtFbImageUrls": {
             **commits_created_at_response_fb.json(),
+        },
+        "branchesAtFbImageUrls": {
+            **branches_created_at_response_fb.json(),
         },
         "releasesAtFbImageUrls": {
             **releases_created_at_response_fb.json(),
